@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useApp, DEMO_USER } from '@/lib/store';
+import { supabase } from '@/lib/supabase';
 
 export default function SignUpPage() {
   const router = useRouter();
-  const { user, setUser } = useApp();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,18 +13,10 @@ export default function SignUpPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  // Redirect if already logged in
-  useEffect(() => {
-    if (user?.isLoggedIn) {
-      router.push('/dashboard');
-    }
-  }, [user, router]);
-
-  function handleSignUp(e: React.FormEvent) {
+  async function handleSignUp(e: React.FormEvent) {
     e.preventDefault();
     setError('');
 
-    // Validate fields
     if (!displayName.trim() || !email.trim() || !password.trim()) {
       setError('Please fill in all fields');
       return;
@@ -38,40 +29,24 @@ export default function SignUpPage() {
 
     setLoading(true);
 
-    // Simulate signup delay
-    setTimeout(() => {
-      // Demo mode: create user and log them in immediately
-      const newUser = {
-        id: `user-${Date.now()}`,
-        email,
-        display_name: displayName,
-        isLoggedIn: true,
-      };
+    const { error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          display_name: displayName.trim(),
+        },
+      },
+    });
 
-      setUser(newUser);
-      setSuccess(true);
+    if (authError) {
+      setError(authError.message);
+      setLoading(false);
+      return;
+    }
 
-      // Redirect after brief success animation
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 500);
-    }, 800);
-  }
-
-  function handleDemoSignup() {
-    setLoading(true);
-    setError('');
-
-    // Simulate signup delay
-    setTimeout(() => {
-      setUser(DEMO_USER);
-      setSuccess(true);
-
-      // Redirect after brief success animation
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 500);
-    }, 600);
+    setSuccess(true);
+    setTimeout(() => router.push('/dashboard'), 500);
   }
 
   return (
@@ -83,13 +58,13 @@ export default function SignUpPage() {
         </div>
         <form onSubmit={handleSignUp} className="bg-[#111128] border border-[#2a2a5a] rounded-2xl p-8 space-y-5">
           {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg p-3 text-sm animate-pulse">
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg p-3 text-sm">
               {error}
             </div>
           )}
 
           {success && (
-            <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-lg p-3 text-sm animate-pulse">
+            <div className="bg-green-500/10 border border-green-500/20 text-green-400 rounded-lg p-3 text-sm">
               ✓ Account created! Welcome aboard...
             </div>
           )}
@@ -137,24 +112,6 @@ export default function SignUpPage() {
             className="btn-primary w-full !text-center disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Creating account...' : success ? 'Redirecting...' : 'Sign Up Free'}
-          </button>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-[#2a2a5a]" />
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-[#111128] text-[#a0a0cc]">quick start</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleDemoSignup}
-            disabled={loading || success}
-            className="w-full bg-[#2a2a5a] hover:bg-[#3a3a6a] text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Loading...' : 'Quick Demo Mode'}
           </button>
 
           <p className="text-center text-sm text-[#a0a0cc]">

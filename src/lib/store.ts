@@ -22,6 +22,7 @@ export interface CompState {
 }
 
 export interface MemberState {
+  id?: string; // comp_member_id from Supabase
   user_id: string;
   display_name: string;
   joined_at: string;
@@ -35,35 +36,35 @@ export interface AppState {
   user: UserState | null;
   comps: CompState[];
   tips: { [compId: string]: TipState };
+  loading: boolean;
   setUser: (user: UserState | null) => void;
   addComp: (comp: CompState) => void;
-  joinComp: (compId: string) => void;
+  joinComp: (compId: string) => Promise<void>;
   setTips: (compId: string, tips: TipState) => void;
   setTip: (compId: string, matchId: number, teamId: number) => void;
+  saveTipsToDb: (compInviteCode: string) => Promise<{ saved: number; errors: number }>;
+  loadTipsFromDb: (compInviteCode: string) => Promise<void>;
+  refreshComps: () => Promise<void>;
 }
 
 export const AppContext = createContext<AppState>({
   user: null,
   comps: [],
   tips: {},
+  loading: true,
   setUser: () => {},
   addComp: () => {},
-  joinComp: () => {},
+  joinComp: async () => {},
   setTips: () => {},
   setTip: () => {},
+  saveTipsToDb: async () => ({ saved: 0, errors: 0 }),
+  loadTipsFromDb: async () => {},
+  refreshComps: async () => {},
 });
 
 export function useApp() {
   return useContext(AppContext);
 }
-
-// Demo user for testing
-export const DEMO_USER: UserState = {
-  id: 'demo-user-1',
-  email: 'demo@longrangetipping.com',
-  display_name: 'Demo User',
-  isLoggedIn: true,
-};
 
 // Generate a random invite code
 export function generateInviteCode(name: string): string {

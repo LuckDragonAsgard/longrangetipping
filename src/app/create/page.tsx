@@ -3,17 +3,18 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp, generateInviteCode } from '@/lib/store';
+import { createComp } from '@/lib/supabase-db';
 
 export default function CreatePage() {
   const router = useRouter();
-  const { user, addComp } = useApp();
+  const { user, addComp, refreshComps, loading } = useApp();
 
   // Redirect if not logged in
   useEffect(() => {
-    if (user && !user.isLoggedIn) {
+    if (!loading && (!user || !user.isLoggedIn)) {
       router.push('/login');
     }
-  }, [user, router]);
+  }, [user, loading, router]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -23,9 +24,10 @@ export default function CreatePage() {
   });
   const [showSuccess, setShowSuccess] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
-  const [compId, setCompId] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
 
-  if (!user?.isLoggedIn) {
+  if (loading || !user?.isLoggedIn) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center px-4">
         <p className="text-[#a0a0cc]">Loading...</p>
@@ -33,41 +35,45 @@ export default function CreatePage() {
     );
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError('');
 
     if (!formData.name.trim()) {
-      alert('Please enter a comp name');
+      setError('Please enter a comp name');
       return;
     }
 
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
+    setCreating(true);
     const code = generateInviteCode(formData.name);
-    const newComp = {
-      id: `comp-${Date.now()}`,
-      name: formData.name,
-      description: formData.description,
-      invite_code: code,
-      is_public: formData.isPublic,
-      season_year: 2026,
-      tip_deadline: formData.deadline,
-      creator_id: user.id,
-      members: [
-        {
-          user_id: user.id,
-          display_name: user.display_name,
-          joined_at: new Date().toISOString(),
-        },
-      ],
-    };
 
-    addComp(newComp);
-    setInviteCode(code);
-    setCompId(newComp.id);
-    setShowSuccess(true);
+    try {
+      const newComp = await createComp({
+        name: formData.name,
+        description: formData.description,
+        invite_code: code,
+        is_public: formData.isPublic,
+        creator_id: user.id,
+        tip_deadline: formData.deadline ? new Date(formData.deadline).toISOString() : undefined,
+      });
+
+      // Refresh comps in the context
+      await refreshComps();
+
+      setInviteCode(code);
+      setShowSuccess(true);
+    } catch (err: any) {
+      // If invite code collision, try again
+      if (err?.code === '23505') {
+        setError('That invite code is taken. Please try again.');
+      } else {
+        setError(err?.message || 'Failed to create comp. Try again.');
+      }
+    } finally {
+      setCreating(false);
+    }
   }
 
   if (showSuccess) {
@@ -124,7 +130,7 @@ export default function CreatePage() {
             {/* Action Buttons */}
             <div className="flex gap-4 pt-4">
               <button
-                onClick={() => router.push(`/comp/${compId}`)}
+                onClick={() => router.push(`/comp/${inviteCode}`)}
                 className="flex-1 btn-primary !text-center"
               >
                 Go to Comp
@@ -133,7 +139,7 @@ export default function CreatePage() {
                 onClick={() => router.push('/dashboard')}
                 className="flex-1 btn-secondary !text-center"
               >
-                Enter Tips
+                Dashboard
               </button>
             </div>
           </div>
@@ -155,6 +161,12 @@ export default function CreatePage() {
         </div>
 
         <form onSubmit={handleSubmit} className="bg-[#111128] border border-[#2a2a5a] rounded-2xl p-8 space-y-6">
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg p-3 text-sm">
+              {error}
+            </div>
+          )}
+
           {/* Comp Name */}
           <div>
             <label className="block text-sm font-medium mb-2">Comp Name *</label>
@@ -230,8 +242,12 @@ export default function CreatePage() {
           </div>
 
           {/* Submit Button */}
-          <button type="submit" className="btn-primary w-full !text-center mt-8">
-            Create Comp →
+          <button
+            type="submit"
+            disabled={creating}
+            className="btn-primary w-full !text-center mt-8 disabled:opacity-50"
+          >
+            {creating ? 'Creating...' : 'Create Comp →'}
           </button>
         </form>
       </div>

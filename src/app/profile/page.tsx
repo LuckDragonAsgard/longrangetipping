@@ -4,20 +4,21 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { AFL_2026_FIXTURE } from '@/lib/fixture-data';
+import { supabase } from '@/lib/supabase';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, setUser, comps, tips } = useApp();
+  const { user, setUser, comps, tips, loading } = useApp();
   const [displayName, setDisplayName] = useState('');
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
   // Redirect if not logged in
   useEffect(() => {
-    if (user && !user.isLoggedIn) {
+    if (!loading && (!user || !user.isLoggedIn)) {
       router.push('/login');
     }
-  }, [user, router]);
+  }, [user, loading, router]);
 
   // Initialize display name
   useEffect(() => {
@@ -40,27 +41,34 @@ export default function ProfilePage() {
     setHasChanges(user ? newName !== user.display_name : false);
   }
 
-  function handleSave(e: React.FormEvent) {
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!displayName.trim()) {
       alert('Display name cannot be empty');
       return;
     }
 
-    if (!user) {
-      return;
-    }
+    if (!user) return;
 
     setSaving(true);
-    setTimeout(() => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ display_name: displayName.trim() })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
       setUser({
         ...user,
         display_name: displayName.trim(),
       });
       setHasChanges(false);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to update profile');
+    } finally {
       setSaving(false);
-      alert('Profile updated!');
-    }, 600);
+    }
   }
 
   // Calculate stats
@@ -185,7 +193,7 @@ export default function ProfilePage() {
                 {userComps.map(comp => (
                   <a
                     key={comp.id}
-                    href={`/comp/${comp.id}`}
+                    href={`/comp/${comp.invite_code}`}
                     className="block p-3 bg-[#1a1a3e] border border-[#2a2a5a] rounded-lg hover:border-[#6366f1] transition-colors group"
                   >
                     <p className="font-medium text-sm group-hover:text-[#6366f1] transition-colors line-clamp-2">

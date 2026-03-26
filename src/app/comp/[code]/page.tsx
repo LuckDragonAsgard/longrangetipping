@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useApp } from '@/lib/store';
 import { AFL_2026_FIXTURE, ROUND_SUMMARY, type FixtureGame } from '@/lib/fixture-data';
 import { getTeamColor } from '@/lib/teams';
 import { getTeamById } from '@/lib/teams-data';
+import { fetchCompByCode } from '@/lib/supabase-db';
 
 interface LeaderboardEntry {
   user_id: string;
@@ -130,9 +131,16 @@ function RoundsTab({ code }: { code: string }) {
   );
 }
 
-function YourTipsTab({ compId, members }: { compId: string; members: Array<{ user_id: string; display_name: string }> }) {
-  const { user, tips } = useApp();
-  const compTips = tips[compId] || {};
+function YourTipsTab({ inviteCode, members }: { inviteCode: string; members: Array<{ user_id: string; display_name: string }> }) {
+  const { user, tips, loadTipsFromDb } = useApp();
+  const compTips = tips[inviteCode] || {};
+
+  // Load tips from DB on mount
+  useEffect(() => {
+    if (user?.isLoggedIn) {
+      loadTipsFromDb(inviteCode);
+    }
+  }, [user, inviteCode, loadTipsFromDb]);
 
   const tipsByRound = useMemo(() => {
     const grouped: { [round: number]: Array<{ game: FixtureGame; tipTeamId?: number }> } = {};
@@ -247,10 +255,43 @@ function YourTipsTab({ compId, members }: { compId: string; members: Array<{ use
 export default function CompPage() {
   const params = useParams();
   const code = params.code as string;
-  const { user, comps, joinComp } = useApp();
+  const { user, comps, joinComp, loading } = useApp();
   const [activeTab, setActiveTab] = useState<'leaderboard' | 'rounds' | 'tips'>('leaderboard');
+  const [fetchedComp, setFetchedComp] = useState<{
+    id: string; name: string; description: string; invite_code: string;
+    is_public: boolean; season_year: number; tip_deadline: string; creator_id: string;
+    members: Array<{ user_id: string; display_name: string; joined_at: string }>;
+  } | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [joining, setJoining] = useState(false);
 
-  const comp = comps.find(c => c.invite_code === code);
+  const comp = comps.find(c => c.invite_code === code) || fetchedComp;
+
+  // If comp not in local state, try fetching from Supabase
+  useEffect(() => {
+    if (!comp && !fetching && !loading) {
+      setFetching(true);
+      fetchCompByCode(code)
+        .then(data => {
+          if (data) {
+            setFetchedComp({
+              ...data,
+              members: [],
+              description: data.description || '',
+            });
+          }
+        })
+        .finally(() => setFetching(false));
+    }
+  }, [comp, code, fetching, loading]);
+
+  if (loading || fetching) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-16 text-center">
+        <p className="text-[#a0a0cc]">Loading comp...</p>
+      </div>
+    );
+  }
 
   if (!comp) {
     return (
@@ -259,7 +300,7 @@ export default function CompPage() {
           <div className="text-6xl mb-6">❌</div>
           <h1 className="text-3xl font-bold mb-4">Comp Not Found</h1>
           <p className="text-[#a0a0cc] mb-8">
-            We couldn't find a comp with code <span className="font-mono text-[#6366f1]">{code}</span>
+            We couldn&apos;t find a comp with code <span className="font-mono text-[#6366f1]">{code}</span>
           </p>
           <Link href="/browse" className="btn-primary">
             Browse Public Comps
@@ -290,13 +331,22 @@ export default function CompPage() {
               <Link href={`/comp/${code}/tips`} className="btn-primary whitespace-nowrap">
                 Enter Tips
               </Link>
-            ) : (
+            ) : user?.isLoggedIn ? (
               <button
-                onClick={() => joinComp(comp.id)}
-                className="btn-primary whitespace-nowrap"
+                onClick={async () => {
+                  setJoining(true);
+                  try { await joinComp(comp.id); } catch (err: any) { alert(err?.message || 'Failed to join'); }
+                  setJoining(false);
+                }}
+                disabled={joining}
+                className="btn-primary whitespace-nowrap disabled:opacity-50"
               >
-                Join Comp
+                {joining ? 'Joining...' : 'Join Comp'}
               </button>
+            ) : (
+              <Link href="/signup" className="btn-primary whitespace-nowrap">
+                Sign Up to Join
+              </Link>
             )}
           </div>
         </div>
@@ -369,7 +419,7 @@ export default function CompPage() {
       <div>
         {activeTab === 'leaderboard' && <Leaderboard members={comp.members} />}
         {activeTab === 'rounds' && <RoundsTab code={code} />}
-        {activeTab === 'tips' && <YourTipsTab compId={comp.id} members={comp.members} />}
+        {activeTab === 'tips' && <YourTipsTab inviteCode={comp.invite_code} members={comp.members} />}
       </div>
     </div>
   );

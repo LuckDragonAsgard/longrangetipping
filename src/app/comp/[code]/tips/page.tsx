@@ -1,408 +1,403 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { AFL_2026_FIXTURE, type FixtureGame } from '@/lib/fixture-data';
 import { useApp } from '@/lib/store';
 import { getTeamColor } from '@/lib/teams';
-import { getTeamById } from '@/lib/teams-data';
+import { AFL_TEAMS, getTeamById } from '@/lib/teams-data';
 
-interface RoundGroup {
-  roundNumber: number;
-  roundName: string;
-  games: FixtureGame[];
-  completed: number;
-  total: number;
-  isComplete: boolean;
+// ─── Quick Fill Modal ───────────────────────────────────────────────
+function QuickFillModal({
+  onClose,
+  onApply,
+  existingTips,
+}: {
+  onClose: () => void;
+  onApply: (tips: { [matchId: number]: number }) => void;
+  existingTips: { [matchId: number]: number };
+}) {
+  const [rankings, setRankings] = useState<number[]>(
+    AFL_TEAMS.map(t => t.id)
+  );
+
+  const moveTeam = (from: number, to: number) => {
+    const next = [...rankings];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setRankings(next);
+  };
+
+  const handleGenerate = () => {
+    const rankMap: { [teamId: number]: number } = {};
+    rankings.forEach((teamId, idx) => {
+      rankMap[teamId] = idx;
+    });
+
+    const newTips: { [matchId: number]: number } = {};
+    AFL_2026_FIXTURE.forEach(game => {
+      if (game.home_team_id && game.away_team_id) {
+        const homeRank = rankMap[game.home_team_id] ?? 99;
+        const awayRank = rankMap[game.away_team_id] ?? 99;
+        newTips[game.id] = homeRank <= awayRank ? game.home_team_id : game.away_team_id;
+      }
+    });
+
+    onApply(newTips);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+      <div className="bg-[#111128] border border-[#2a2a5a] rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col">
+        <div className="p-6 border-b border-[#2a2a5a]">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xl font-bold">Quick Fill</h2>
+            <button onClick={onClose} className="text-[#a0a0cc] hover:text-white text-2xl">&times;</button>
+          </div>
+          <p className="text-sm text-[#a0a0cc]">
+            Rank teams best to worst. The better-ranked team gets auto-tipped to win each game. Tweak individual tips after.
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          {rankings.map((teamId, idx) => {
+            const team = getTeamById(teamId);
+            if (!team) return null;
+            const color = getTeamColor(team.name);
+
+            return (
+              <div
+                key={teamId}
+                className="flex items-center gap-3 p-3 rounded-lg mb-1 bg-[#0a0a14] hover:bg-[#1a1a3e] transition-all"
+              >
+                <div className="text-sm font-bold text-[#a0a0cc] w-6 text-center">{idx + 1}</div>
+                <div className="flex items-center gap-2 flex-1">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
+                  <span className="font-medium text-sm">{team.name}</span>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => { if (idx > 0) moveTeam(idx, idx - 1); }}
+                    disabled={idx === 0}
+                    className="w-7 h-7 rounded bg-[#2a2a5a] hover:bg-[#6366f1]/30 flex items-center justify-center text-xs disabled:opacity-20"
+                  >▲</button>
+                  <button
+                    onClick={() => { if (idx < rankings.length - 1) moveTeam(idx, idx + 1); }}
+                    disabled={idx === rankings.length - 1}
+                    className="w-7 h-7 rounded bg-[#2a2a5a] hover:bg-[#6366f1]/30 flex items-center justify-center text-xs disabled:opacity-20"
+                  >▼</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="p-4 border-t border-[#2a2a5a] flex gap-3">
+          <button onClick={onClose} className="flex-1 py-3 rounded-lg border border-[#2a2a5a] font-semibold hover:bg-[#1a1a3e] transition-all">
+            Cancel
+          </button>
+          <button onClick={handleGenerate} className="flex-1 py-3 rounded-lg bg-gradient-to-r from-[#6366f1] to-[#a855f7] font-semibold hover:shadow-lg transition-all">
+            Fill All Tips
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  const dayName = days[date.getDay()];
-  const dayNum = date.getDate();
-  const monthName = months[date.getMonth()];
-  const hour = date.getHours();
-  const min = date.getMinutes().toString().padStart(2, '0');
-
-  return `${dayName} ${dayNum} ${monthName} ${hour}:${min}`;
-}
-
-function MatchCard({ game, compId, isExpanded }: { game: FixtureGame; compId: string; isExpanded: boolean }) {
-  const { tips, setTip } = useApp();
-  const compTips = tips[compId] || {};
-  const userTip = compTips[game.id];
-
-  const homeTeam = game.home_team_id ? getTeamById(game.home_team_id) : undefined;
-  const awayTeam = game.away_team_id ? getTeamById(game.away_team_id) : undefined;
-
+// ─── Compact Match Row ──────────────────────────────────────────────
+function MatchRow({
+  game,
+  tipTeamId,
+  onTip,
+}: {
+  game: FixtureGame;
+  tipTeamId?: number;
+  onTip: (gameId: number, teamId: number) => void;
+}) {
   const homeColor = getTeamColor(game.home_team || '');
   const awayColor = getTeamColor(game.away_team || '');
 
-  const handleTip = (teamId: number) => {
-    if (!game.complete) {
-      setTip(compId, game.id, teamId);
-    }
-  };
-
-  if (!isExpanded) {
-    return null;
-  }
+  const isHomeTipped = tipTeamId === game.home_team_id;
+  const isAwayTipped = tipTeamId === game.away_team_id;
+  const isComplete = game.complete;
+  const homeWon = game.winner_team_id === game.home_team_id;
+  const awayWon = game.winner_team_id === game.away_team_id;
+  const tipCorrect = tipTeamId === game.winner_team_id;
 
   return (
-    <div className="bg-[#111128] border border-[#2a2a5a] rounded-xl p-4 mb-3">
-      {/* Date and Venue */}
-      <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#2a2a5a]/50">
-        <div>
-          <div className="text-xs text-[#a0a0cc] font-medium">{formatDate(game.date)}</div>
-          <div className="text-xs text-[#a0a0cc]">{game.venue}</div>
-        </div>
-        {game.complete && (
-          <div className="px-2 py-1 bg-[#2a2a5a] rounded-full text-xs font-semibold text-[#a0a0cc]">
-            LOCKED
-          </div>
-        )}
-      </div>
-
-      {/* Match Teams */}
-      <div className="space-y-2">
-        {/* Home Team */}
-        <button
-          onClick={() => game.home_team_id && handleTip(game.home_team_id)}
-          disabled={game.complete || !game.home_team_id}
-          className={`w-full p-3 rounded-lg border-2 transition-all ${
-            game.complete
-              ? 'cursor-not-allowed bg-[#0a0a14]'
-              : userTip === game.home_team_id
-              ? 'border-[#6366f1] bg-[#6366f1]/10'
-              : 'border-[#2a2a5a] hover:border-[#6366f1]/50 hover:bg-[#6366f1]/5'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: homeColor }}
-              />
-              <div className="text-left">
-                <div className="font-semibold">{game.home_team}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {game.complete ? (
-                <>
-                  <div className="text-lg font-bold">{game.home_score}</div>
-                  {game.winner_team_id === game.home_team_id && (
-                    <div className="text-xl">✓</div>
-                  )}
-                </>
-              ) : (
-                <>
-                  {userTip === game.home_team_id && (
-                    <div className="w-5 h-5 bg-[#6366f1] rounded-full flex items-center justify-center">
-                      <div className="w-2 h-2 bg-white rounded-full" />
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </button>
-
-        {/* Away Team */}
-        <button
-          onClick={() => game.away_team_id && handleTip(game.away_team_id)}
-          disabled={game.complete || !game.away_team_id}
-          className={`w-full p-3 rounded-lg border-2 transition-all ${
-            game.complete
-              ? 'cursor-not-allowed bg-[#0a0a14]'
-              : userTip === game.away_team_id
-              ? 'border-[#6366f1] bg-[#6366f1]/10'
-              : 'border-[#2a2a5a] hover:border-[#6366f1]/50 hover:bg-[#6366f1]/5'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: awayColor }}
-              />
-              <div className="text-left">
-                <div className="font-semibold">{game.away_team}</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {game.complete ? (
-                <>
-                  <div className="text-lg font-bold">{game.away_score}</div>
-                  {game.winner_team_id === game.away_team_id && (
-                    <div className="text-xl">✓</div>
-                  )}
-                </>
-              ) : (
-                <>
-                  {userTip === game.away_team_id && (
-                    <div className="w-5 h-5 bg-[#6366f1] rounded-full flex items-center justify-center">
-                      <div className="w-2 h-2 bg-white rounded-full" />
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function RoundSection({
-  round,
-  compId,
-  autoExpand,
-}: {
-  round: RoundGroup;
-  compId: string;
-  autoExpand: boolean;
-}) {
-  const [expanded, setExpanded] = useState(autoExpand);
-
-  const completionPercent = Math.round((round.completed / round.total) * 100);
-
-  return (
-    <div className="mb-4">
-      {/* Round Header */}
+    <div className={`flex items-center gap-2 py-1.5 px-2 rounded-lg transition-all ${
+      isComplete ? 'bg-[#0a0a14]/50' : tipTeamId ? 'bg-[#111128]' : 'bg-[#0a0a14]'
+    }`}>
       <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full bg-gradient-to-r from-[#1a1040]/50 to-[#111128]/50 border border-[#2a2a5a] rounded-xl p-4 flex items-center justify-between hover:bg-gradient-to-r hover:from-[#1a1040]/70 hover:to-[#111128]/70 transition-all group"
+        onClick={() => game.home_team_id && !isComplete && onTip(game.id, game.home_team_id)}
+        disabled={isComplete}
+        className={`flex-1 flex items-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+          isComplete
+            ? homeWon ? 'bg-green-500/10 text-green-400' : 'text-[#a0a0cc]/50'
+            : isHomeTipped
+            ? 'bg-[#6366f1]/20 border border-[#6366f1] text-white'
+            : 'hover:bg-[#1a1a3e] text-[#a0a0cc] hover:text-white'
+        }`}
       >
-        <div className="flex items-center gap-4">
-          <div>
-            <h3 className="font-bold text-lg">{round.roundName}</h3>
-            <p className="text-sm text-[#a0a0cc]">
-              {round.total} game{round.total !== 1 ? 's' : ''} {round.isComplete && '• Completed'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="text-right hidden sm:block">
-            <div className="font-bold">{round.completed}/{round.total}</div>
-            <div className="text-xs text-[#a0a0cc]">games decided</div>
-          </div>
-          <div
-            className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
-          >
-            <svg className="w-5 h-5 text-[#a0a0cc]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
-          </div>
-        </div>
+        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: homeColor }} />
+        <span className="truncate">{game.home_team}</span>
+        {isComplete && <span className="ml-auto font-bold text-xs">{game.home_score}</span>}
+        {isHomeTipped && !isComplete && <span className="ml-auto text-[#6366f1]">●</span>}
       </button>
 
-      {/* Progress Bar */}
-      {expanded && (
-        <div className="mt-2 px-4 py-2 bg-[#0a0a14] rounded-lg">
-          <div className="w-full bg-[#2a2a5a] rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-[#6366f1] to-[#a855f7] h-full transition-all"
-              style={{ width: `${completionPercent}%` }}
-            />
-          </div>
-          <p className="text-xs text-[#a0a0cc] mt-1">{completionPercent}% of games decided</p>
-        </div>
-      )}
+      <span className="text-[#a0a0cc]/30 text-xs font-bold w-5 text-center flex-shrink-0">v</span>
 
-      {/* Games List */}
-      {expanded && (
-        <div className="mt-4 space-y-0">
-          {round.games.map(game => (
-            <MatchCard
-              key={game.id}
-              game={game}
-              compId={compId}
-              isExpanded={expanded}
-            />
-          ))}
-        </div>
+      <button
+        onClick={() => game.away_team_id && !isComplete && onTip(game.id, game.away_team_id)}
+        disabled={isComplete}
+        className={`flex-1 flex items-center gap-2 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+          isComplete
+            ? awayWon ? 'bg-green-500/10 text-green-400' : 'text-[#a0a0cc]/50'
+            : isAwayTipped
+            ? 'bg-[#6366f1]/20 border border-[#6366f1] text-white'
+            : 'hover:bg-[#1a1a3e] text-[#a0a0cc] hover:text-white'
+        }`}
+      >
+        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: awayColor }} />
+        <span className="truncate">{game.away_team}</span>
+        {isComplete && <span className="ml-auto font-bold text-xs">{game.away_score}</span>}
+        {isAwayTipped && !isComplete && <span className="ml-auto text-[#6366f1]">●</span>}
+      </button>
+
+      {isComplete && tipTeamId && (
+        <span className="text-sm flex-shrink-0 w-5 text-center">{tipCorrect ? '✅' : '❌'}</span>
+      )}
+      {isComplete && !tipTeamId && (
+        <span className="text-sm flex-shrink-0 w-5 text-center text-[#a0a0cc]/30">—</span>
       )}
     </div>
   );
 }
 
-function ProgressHeader({
-  totalTipped,
-  totalGames,
+// ─── Round Nav Pill ─────────────────────────────────────────────────
+function RoundPill({
+  roundName,
+  tipped,
+  total,
+  isActive,
+  onClick,
 }: {
-  totalTipped: number;
-  totalGames: number;
+  roundName: string;
+  tipped: number;
+  total: number;
+  isActive: boolean;
+  onClick: () => void;
 }) {
-  const percent = Math.round((totalTipped / totalGames) * 100);
+  const allTipped = tipped === total;
+  const label = roundName === 'Opening Round' ? 'OR' : roundName.replace('Round ', 'R');
 
   return (
-    <div className="sticky top-16 bg-[#0a0a14]/95 backdrop-blur-lg border-b border-[#2a2a5a] px-4 py-4 z-40">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-3">
-          <div className="font-semibold">Tips Progress</div>
-          <div className="text-sm font-bold text-[#6366f1]">
-            {totalTipped}/{totalGames} games tipped
-          </div>
-        </div>
-        <div className="w-full bg-[#2a2a5a] rounded-full h-2 overflow-hidden">
-          <div
-            className="bg-gradient-to-r from-[#6366f1] to-[#a855f7] h-full transition-all"
-            style={{ width: `${percent}%` }}
-          />
-        </div>
-      </div>
-    </div>
+    <button
+      onClick={onClick}
+      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+        isActive
+          ? 'bg-[#6366f1] text-white shadow-lg shadow-[#6366f1]/30'
+          : allTipped
+          ? 'bg-[#14b8a6]/20 text-[#14b8a6] border border-[#14b8a6]/30'
+          : tipped > 0
+          ? 'bg-[#6366f1]/10 text-[#a78bfa] border border-[#6366f1]/20'
+          : 'bg-[#1a1a3e] text-[#a0a0cc] border border-[#2a2a5a]'
+      }`}
+    >
+      {label}{allTipped ? '✓' : tipped > 0 ? ` ${tipped}/${total}` : ''}
+    </button>
   );
 }
 
+// ─── Main Tips Page ─────────────────────────────────────────────────
 export default function TipsPage() {
   const params = useParams();
   const code = params.code as string;
-  const { tips, setTips } = useApp();
-  const [saved, setSaved] = useState(false);
-  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const { user, tips, setTip, setTips, saveTipsToDb, loadTipsFromDb, loading } = useApp();
+  const [showQuickFill, setShowQuickFill] = useState(false);
+  const [activeRound, setActiveRound] = useState<number | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [tipsLoaded, setTipsLoaded] = useState(false);
+  const roundRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
 
   const compTips = tips[code] || {};
 
-  // Group games by round
-  const roundGroups = useMemo(() => {
-    const groups: RoundGroup[] = [];
-    const roundMap: { [key: number]: RoundGroup } = {};
+  // Load tips from Supabase on mount
+  useEffect(() => {
+    if (user?.isLoggedIn && !tipsLoaded) {
+      loadTipsFromDb(code).then(() => setTipsLoaded(true));
+    }
+  }, [user, code, tipsLoaded, loadTipsFromDb]);
 
+  const rounds = useMemo(() => {
+    const map = new Map<number, { roundNum: number; roundName: string; games: FixtureGame[] }>();
     AFL_2026_FIXTURE.forEach(game => {
-      if (!roundMap[game.round]) {
-        roundMap[game.round] = {
-          roundNumber: game.round,
-          roundName: game.roundname,
-          games: [],
-          completed: 0,
-          total: 0,
-          isComplete: false,
-        };
-        groups.push(roundMap[game.round]);
+      if (!map.has(game.round)) {
+        map.set(game.round, { roundNum: game.round, roundName: game.roundname, games: [] });
       }
-
-      roundMap[game.round].games.push(game);
-      roundMap[game.round].total++;
-      if (game.complete) {
-        roundMap[game.round].completed++;
-      }
+      map.get(game.round)!.games.push(game);
     });
-
-    groups.forEach(g => {
-      g.isComplete = g.completed === g.total;
-    });
-
-    return groups.sort((a, b) => a.roundNumber - b.roundNumber);
+    return Array.from(map.values()).sort((a, b) => a.roundNum - b.roundNum);
   }, []);
 
-  // Calculate statistics
-  const stats = useMemo(() => {
-    const totalGames = AFL_2026_FIXTURE.length;
-    const completedGames = AFL_2026_FIXTURE.filter(g => g.complete).length;
-    const totalTipped = Object.keys(compTips).length;
-    const firstIncompleteRound = roundGroups.findIndex(r => !r.isComplete);
+  const totalGames = AFL_2026_FIXTURE.length;
+  const totalTipped = Object.keys(compTips).length;
+  const percent = Math.round((totalTipped / totalGames) * 100);
 
-    return {
-      totalGames,
-      completedGames,
-      remainingGames: totalGames - completedGames,
-      totalTipped,
-      firstIncompleteRound,
-    };
-  }, [compTips, roundGroups]);
+  useEffect(() => {
+    if (activeRound === null && rounds.length > 0) {
+      const firstUntipped = rounds.find(r => {
+        const tippedInRound = r.games.filter(g => compTips[g.id]).length;
+        return tippedInRound < r.games.length;
+      });
+      setActiveRound(firstUntipped?.roundNum ?? rounds[0]?.roundNum ?? 0);
+    }
+  }, [rounds, compTips, activeRound]);
 
-  const handleSave = () => {
-    setShowSaveConfirm(true);
-    setTips(code, compTips);
-    setTimeout(() => {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    }, 500);
-    setTimeout(() => setShowSaveConfirm(false), 1000);
+  const handleTip = useCallback((gameId: number, teamId: number) => {
+    setTip(code, gameId, teamId);
+  }, [code, setTip]);
+
+  const handleQuickFill = useCallback((allTips: { [matchId: number]: number }) => {
+    setTips(code, allTips);
+  }, [code, setTips]);
+
+  const scrollToRound = (roundNum: number) => {
+    setActiveRound(roundNum);
+    roundRefs.current[roundNum]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleSave = async () => {
+    if (!user?.isLoggedIn) {
+      setSaveStatus('error');
+      return;
+    }
+    setSaveStatus('saving');
+    try {
+      const result = await saveTipsToDb(code);
+      if (result.errors > 0) {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      } else {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      }
+    } catch {
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
   };
 
   return (
     <div className="min-h-screen bg-[#0a0a14]">
-      {/* Progress Header */}
-      <ProgressHeader
-        totalTipped={stats.totalTipped}
-        totalGames={stats.totalGames}
-      />
-
-      {/* Main Content */}
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        {/* Page Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Enter Your Tips</h1>
-          <p className="text-[#a0a0cc]">
-            {stats.completedGames} game{stats.completedGames !== 1 ? 's' : ''} completed • {stats.remainingGames} to tip
-          </p>
-        </div>
-
-        {/* Statistics Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          <div className="bg-[#111128] border border-[#2a2a5a] rounded-xl p-4">
-            <div className="text-xs text-[#a0a0cc] font-medium uppercase tracking-wider mb-1">
-              Tips Entered
+      {/* Sticky Header */}
+      <div className="sticky top-16 bg-[#0a0a14]/95 backdrop-blur-lg border-b border-[#2a2a5a] z-40">
+        <div className="px-4 pt-3 pb-2">
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <h1 className="font-bold text-lg">Enter Tips</h1>
+                <button
+                  onClick={() => setShowQuickFill(true)}
+                  className="px-3 py-1 rounded-full text-xs font-bold bg-[#a855f7]/20 text-[#a855f7] border border-[#a855f7]/30 hover:bg-[#a855f7]/30 transition-all"
+                >
+                  ⚡ Quick Fill
+                </button>
+              </div>
+              <div className="text-sm font-bold">
+                <span className="text-[#6366f1]">{totalTipped}</span>
+                <span className="text-[#a0a0cc]">/{totalGames}</span>
+              </div>
             </div>
-            <div className="text-2xl font-bold gradient-text">{stats.totalTipped}</div>
-          </div>
-          <div className="bg-[#111128] border border-[#2a2a5a] rounded-xl p-4">
-            <div className="text-xs text-[#a0a0cc] font-medium uppercase tracking-wider mb-1">
-              Games Remaining
-            </div>
-            <div className="text-2xl font-bold gradient-text">{stats.remainingGames}</div>
-          </div>
-          <div className="bg-[#111128] border border-[#2a2a5a] rounded-xl p-4">
-            <div className="text-xs text-[#a0a0cc] font-medium uppercase tracking-wider mb-1">
-              Progress
-            </div>
-            <div className="text-2xl font-bold gradient-text">
-              {Math.round((stats.totalTipped / stats.totalGames) * 100)}%
+            <div className="w-full bg-[#2a2a5a] rounded-full h-1.5 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-[#6366f1] to-[#a855f7] h-full transition-all duration-300"
+                style={{ width: `${percent}%` }}
+              />
             </div>
           </div>
         </div>
 
-        {/* Rounds */}
-        <div className="space-y-4">
-          {roundGroups.map((round, idx) => (
-            <RoundSection
-              key={round.roundNumber}
-              round={round}
-              compId={code}
-              autoExpand={idx === stats.firstIncompleteRound}
-            />
-          ))}
+        <div className="px-4 pb-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+          <div className="max-w-4xl mx-auto flex gap-1.5">
+            {rounds.map(round => {
+              const tippedInRound = round.games.filter(g => compTips[g.id]).length;
+              return (
+                <RoundPill
+                  key={round.roundNum}
+                  roundName={round.roundName}
+                  tipped={tippedInRound}
+                  total={round.games.length}
+                  isActive={activeRound === round.roundNum}
+                  onClick={() => scrollToRound(round.roundNum)}
+                />
+              );
+            })}
+          </div>
         </div>
+      </div>
 
-        {/* Save Button */}
-        <div className="mt-12 flex gap-3 sticky bottom-0 bg-gradient-to-t from-[#0a0a14] via-[#0a0a14] to-transparent pt-8 pb-4">
+      {/* Games */}
+      <div className="max-w-4xl mx-auto px-4 py-6">
+        {rounds.map(round => {
+          const tippedInRound = round.games.filter(g => compTips[g.id]).length;
+          const allDone = tippedInRound === round.games.length;
+
+          return (
+            <div
+              key={round.roundNum}
+              ref={el => { roundRefs.current[round.roundNum] = el; }}
+              className="mb-8 scroll-mt-36"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-bold">{round.roundName}</h2>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                  allDone ? 'bg-[#14b8a6]/20 text-[#14b8a6]' : tippedInRound > 0 ? 'bg-[#6366f1]/20 text-[#6366f1]' : 'bg-[#2a2a5a]/50 text-[#a0a0cc]'
+                }`}>
+                  {tippedInRound}/{round.games.length}
+                </span>
+              </div>
+              <div className="space-y-1">
+                {round.games.map(game => (
+                  <MatchRow key={game.id} game={game} tipTeamId={compTips[game.id]} onTip={handleTip} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Save Footer */}
+        <div className="sticky bottom-0 bg-gradient-to-t from-[#0a0a14] via-[#0a0a14] to-transparent pt-8 pb-4 flex gap-3">
           <button
             onClick={handleSave}
             className={`flex-1 py-3 rounded-lg font-semibold transition-all ${
-              saved
+              saveStatus === 'saved'
                 ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                : showSaveConfirm
-                ? 'bg-[#6366f1]/80 text-white border border-[#6366f1]/50'
+                : saveStatus === 'saving'
+                ? 'bg-[#6366f1]/80 text-white'
                 : 'bg-gradient-to-r from-[#6366f1] to-[#a855f7] text-white hover:shadow-lg hover:shadow-[#6366f1]/20'
             }`}
           >
-            {saved ? '✓ Tips Saved' : showSaveConfirm ? 'Saving...' : 'Save Tips'}
+            {saveStatus === 'saved' ? '✓ Tips Saved' : saveStatus === 'saving' ? 'Saving...' : saveStatus === 'error' ? 'Save Failed - Retry' : `Save Tips (${totalTipped}/${totalGames})`}
           </button>
           <a
             href={`/comp/${code}`}
             className="py-3 px-6 rounded-lg font-semibold border border-[#2a2a5a] hover:border-[#6366f1]/50 hover:bg-[#6366f1]/5 transition-all"
           >
-            View Comp
+            Back
           </a>
         </div>
       </div>
+
+      {showQuickFill && (
+        <QuickFillModal
+          onClose={() => setShowQuickFill(false)}
+          onApply={handleQuickFill}
+          existingTips={compTips}
+        />
+      )}
     </div>
   );
 }

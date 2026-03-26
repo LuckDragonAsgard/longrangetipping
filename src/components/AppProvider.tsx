@@ -1,72 +1,125 @@
 'use client';
 
-import { useState, useCallback, ReactNode } from 'react';
+import { useState, useCallback, useEffect, ReactNode } from 'react';
 import { AppContext, AppState, UserState, CompState, TipState } from '@/lib/store';
-
-// Pre-built demo comps
-const DEMO_COMPS: CompState[] = [
-  {
-    id: 'comp-puhie',
-    name: "Puhie's Tipping 2026",
-    description: 'Family footy tipping comp',
-    invite_code: 'PUHIE26',
-    is_public: false,
-    season_year: 2026,
-    tip_deadline: '2026-03-05T19:30:00',
-    creator_id: 'user-puhie',
-    members: [
-      { user_id: 'user-luna', display_name: 'Luna', joined_at: '2026-02-15' },
-      { user_id: 'user-freddie', display_name: 'Freddie', joined_at: '2026-02-16' },
-      { user_id: 'user-donna', display_name: 'Donna', joined_at: '2026-02-16' },
-      { user_id: 'user-puhie', display_name: 'Puhie', joined_at: '2026-02-14' },
-      { user_id: 'user-mauro', display_name: 'Mauro', joined_at: '2026-02-17' },
-      { user_id: 'user-sara', display_name: 'Sara', joined_at: '2026-02-18' },
-    ],
-  },
-  {
-    id: 'comp-gallivan',
-    name: 'Gallivan Family Footy Tips',
-    description: 'The big family tipping comp - bragging rights on the line!',
-    invite_code: 'GALLI26',
-    is_public: false,
-    season_year: 2026,
-    tip_deadline: '2026-03-05T19:30:00',
-    creator_id: 'demo-user-1',
-    members: [
-      { user_id: 'demo-user-1', display_name: 'Paddy', joined_at: '2026-02-10' },
-    ],
-  },
-];
-
-// Pre-generated tips for demo members to create a leaderboard
-const DEMO_TIPS: { [compId: string]: { [userId: string]: TipState } } = {};
+import { supabase } from '@/lib/supabase';
+import {
+  fetchProfile,
+  fetchUserComps,
+  fetchPublicComps,
+  getCompMemberId,
+  fetchTips,
+  saveTips as saveTipsDb,
+  joinComp as joinCompDb,
+} from '@/lib/supabase-db';
 
 export default function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<UserState | null>(null);
-  const [comps, setComps] = useState<CompState[]>(DEMO_COMPS);
+  const [comps, setComps] = useState<CompState[]>([]);
   const [tips, setTipsState] = useState<{ [compId: string]: TipState }>({});
+  const [loading, setLoading] = useState(true);
+  // Cache comp_member_id lookups: { "inviteCode": comp_member_id }
+  const [memberIdCache, setMemberIdCache] = useState<{ [key: string]: string }>({});
 
+  // ─── Auth Session Check ─────────────────────────────────────────
+  useEffect(() => {
+    let mounted = true;
+
+    async function initAuth() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session?.user && mounted) {
+          const profile = await fetchProfile(session.user.id);
+          setUserState({
+            id: session.user.id,
+            email: session.user.email || '',
+            display_name: profile.display_name || session.user.email?.split('@')[0] || 'User',
+            isLoggedIn: true,
+          });
+
+          // Load user's comps
+          const userComps = await fetchUserComps(session.user.id);
+          setComps(userComps);
+        }
+      } catch (err) {
+        console.error('Auth init error:', err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    initAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+
+      if (event === 'SIGNED_IN' && session?.user) {
+        try {
+          const profile = await fetchProfile(session.user.id);
+          setUserState({
+            id: session.user.id,
+            email: session.user.email || '',
+            display_name: profile.display_name || session.user.email?.split('@')[0] || 'User',
+            isLoggedIn: true,
+          });
+          const userComps = await fetchUserComps(session.user.id);
+          setComps(userComps);
+        } catch (err) {
+          console.error('Auth state change error:', err);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUserState(null);
+        setComps([]);
+        setTipsState({});
+        setMemberIdCache({});
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // ─── User ───────────────────────────────────────────────────────
   const setUser = useCallback((u: UserState | null) => {
+    if (!u) {
+      supabase.auth.signOut();
+    }
     setUserState(u);
   }, []);
 
+  // ─── Comps ──────────────────────────────────────────────────────
   const addComp = useCallback((comp: CompState) => {
     setComps(prev => [...prev, comp]);
   }, []);
 
-  const joinComp = useCallback((compId: string) => {
+  const refreshComps = useCallback(async () => {
     if (!user) return;
-    setComps(prev => prev.map(c => {
-      if (c.id === compId) {
-        return {
-          ...c,
-          members: [...c.members, { user_id: user.id, display_name: user.display_name, joined_at: new Date().toISOString() }],
-        };
-      }
-      return c;
-    }));
+    try {
+      const userComps = await fetchUserComps(user.id);
+      setComps(userComps);
+    } catch (err) {
+      console.error('Failed to refresh comps:', err);
+    }
   }, [user]);
 
+  const joinComp = useCallback(async (compId: string) => {
+    if (!user) return;
+    try {
+      await joinCompDb(compId, user.id);
+      // Refresh comps to include the newly joined one
+      const userComps = await fetchUserComps(user.id);
+      setComps(userComps);
+    } catch (err: any) {
+      console.error('Join comp error:', err);
+      throw err;
+    }
+  }, [user]);
+
+  // ─── Tips ───────────────────────────────────────────────────────
   const setTips = useCallback((compId: string, newTips: TipState) => {
     setTipsState(prev => ({ ...prev, [compId]: newTips }));
   }, []);
@@ -78,15 +131,62 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  // Find comp_member_id for a given invite code and current user
+  const getOrCacheMemberId = useCallback(async (inviteCode: string): Promise<string | null> => {
+    if (memberIdCache[inviteCode]) return memberIdCache[inviteCode];
+    if (!user) return null;
+
+    // Find the comp by invite code
+    const comp = comps.find(c => c.invite_code === inviteCode);
+    if (!comp) return null;
+
+    const memberId = await getCompMemberId(comp.id, user.id);
+    if (memberId) {
+      setMemberIdCache(prev => ({ ...prev, [inviteCode]: memberId }));
+    }
+    return memberId;
+  }, [user, comps, memberIdCache]);
+
+  const loadTipsFromDb = useCallback(async (inviteCode: string) => {
+    const memberId = await getOrCacheMemberId(inviteCode);
+    if (!memberId) return;
+
+    try {
+      const dbTips = await fetchTips(memberId);
+      setTipsState(prev => ({ ...prev, [inviteCode]: dbTips }));
+    } catch (err) {
+      console.error('Failed to load tips:', err);
+    }
+  }, [getOrCacheMemberId]);
+
+  const saveTipsToDb = useCallback(async (inviteCode: string): Promise<{ saved: number; errors: number }> => {
+    const memberId = await getOrCacheMemberId(inviteCode);
+    if (!memberId) return { saved: 0, errors: 0 };
+
+    const compTips = tips[inviteCode] || {};
+    try {
+      const result = await saveTipsDb(memberId, compTips);
+      return result;
+    } catch (err) {
+      console.error('Failed to save tips:', err);
+      return { saved: 0, errors: Object.keys(compTips).length };
+    }
+  }, [getOrCacheMemberId, tips]);
+
+  // ─── Context Value ──────────────────────────────────────────────
   const value: AppState = {
     user,
     comps,
     tips,
+    loading,
     setUser,
     addComp,
     joinComp,
     setTips,
     setTip,
+    saveTipsToDb,
+    loadTipsFromDb,
+    refreshComps,
   };
 
   return (

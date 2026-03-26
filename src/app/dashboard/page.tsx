@@ -5,13 +5,15 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/store';
 import { AFL_2026_FIXTURE, ROUND_SUMMARY, TOTAL_GAMES } from '@/lib/fixture-data';
+import { fetchCompByCode } from '@/lib/supabase-db';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, comps, tips, joinComp } = useApp();
+  const { user, comps, tips, joinComp, loading } = useApp();
   const [inviteCode, setInviteCode] = useState('');
   const [joinError, setJoinError] = useState('');
   const [joinSuccess, setJoinSuccess] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   // Calculate comprehensive stats from real state
   const stats = useMemo(() => {
@@ -38,9 +40,9 @@ export default function DashboardPage() {
     };
   }, [user, comps, tips]);
 
-  // Count tips per comp for each user's comps
-  const getTipsForComp = (compId: string): number => {
-    return Object.keys(tips[compId] || {}).length;
+  // Count tips per comp — use invite_code as key (matches tips page)
+  const getTipsForComp = (comp: { id: string; invite_code: string }): number => {
+    return Object.keys(tips[comp.invite_code] || {}).length;
   };
 
   // Calculate user's rank in a comp based on member position
@@ -52,39 +54,46 @@ export default function DashboardPage() {
   };
 
   // Handle join comp logic
-  const handleJoinComp = () => {
+  const handleJoinComp = async () => {
     if (!inviteCode.trim()) {
       setJoinError('Please enter a code');
       return;
     }
 
-    // Find comp by invite code
-    const targetComp = comps.find(c => c.invite_code.toUpperCase() === inviteCode.toUpperCase());
+    setJoining(true);
+    setJoinError('');
 
-    if (!targetComp) {
-      setJoinError('Comp not found. Check your invite code.');
-      return;
-    }
+    try {
+      // Look up comp by invite code in Supabase
+      const targetComp = await fetchCompByCode(inviteCode);
 
-    // Check if already a member
-    if (user && targetComp.members.some(m => m.user_id === user.id)) {
-      setJoinError("You're already a member of this comp!");
-      return;
-    }
+      if (!targetComp) {
+        setJoinError('Comp not found. Check your invite code.');
+        setJoining(false);
+        return;
+      }
 
-    // Join the comp
-    if (targetComp.id) {
-      joinComp(targetComp.id);
+      // Join the comp via Supabase
+      await joinComp(targetComp.id);
       setJoinSuccess(true);
       setInviteCode('');
-      setJoinError('');
 
-      // Reset success message after 3 seconds
-      setTimeout(() => {
-        setJoinSuccess(false);
-      }, 3000);
+      setTimeout(() => setJoinSuccess(false), 3000);
+    } catch (err: any) {
+      setJoinError(err?.message || 'Failed to join comp. Try again.');
+    } finally {
+      setJoining(false);
     }
   };
+
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 py-16 text-center">
+        <p className="text-[#a0a0cc]">Loading...</p>
+      </div>
+    );
+  }
 
   // Show login prompt if not logged in
   if (!user || !user.isLoggedIn) {
@@ -183,7 +192,7 @@ export default function DashboardPage() {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {comps.map(comp => {
               const rank = getUserRank(comp.id);
-              const userTips = getTipsForComp(comp.id);
+              const userTips = getTipsForComp(comp);
 
               return (
                 <Link
