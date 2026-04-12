@@ -7,7 +7,7 @@ export async function fetchProfile(userId: string) {
     .from('profiles')
     .select('*')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
   if (error) throw error;
   return data;
 }
@@ -122,7 +122,7 @@ export async function fetchCompByCode(inviteCode: string) {
     .from('comps')
     .select('*')
     .eq('invite_code', inviteCode.toUpperCase())
-    .single();
+    .maybeSingle();
   if (error) return null;
   return data;
 }
@@ -147,7 +147,7 @@ export async function createComp(comp: {
       tip_deadline: comp.tip_deadline || null,
     })
     .select()
-    .single();
+    .maybeSingle();
   if (error) throw error;
 
   // Auto-join creator as first member
@@ -179,7 +179,7 @@ export async function getCompMemberId(compId: string, userId: string): Promise<s
     .select('id')
     .eq('comp_id', compId)
     .eq('user_id', userId)
-    .single();
+    .maybeSingle();
   if (error) return null;
   return data?.id || null;
 }
