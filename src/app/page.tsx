@@ -75,7 +75,7 @@ export default function Home() {
             </form>
 
             <div className="flex items-center justify-center gap-4 flex-wrap">
-              <a href="/signup" className="btn-primary text-lg !py-3 !px-8">
+              <a href="/create" className="btn-primary text-lg !py-3 !px-8">
                 Create Your Comp
               </a>
               <a href="/browse" className="btn-secondary text-lg !py-3 !px-8">

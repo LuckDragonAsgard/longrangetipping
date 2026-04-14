@@ -34,7 +34,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
           setUserState({
             id: session.user.id,
             email: session.user.email || '',
-            display_name: profile.display_name || session.user.email?.split('@')[0] || 'User',
+            display_name: profile?.display_name || session.user.email?.split('@')[0] || 'User',
             isLoggedIn: true,
           });
 
@@ -61,7 +61,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
           setUserState({
             id: session.user.id,
             email: session.user.email || '',
-            display_name: profile.display_name || session.user.email?.split('@')[0] || 'User',
+            display_name: profile?.display_name || session.user.email?.split('@')[0] || 'User',
             isLoggedIn: true,
           });
           const userComps = await fetchUserComps(session.user.id);

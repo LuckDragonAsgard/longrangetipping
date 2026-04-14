@@ -19,7 +19,7 @@ export default function CreatePage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    deadline: '2026-03-05T19:30',
+    deadline: `${new Date().getFullYear()}-03-05T19:30`,
     isPublic: false,
   });
   const [showSuccess, setShowSuccess] = useState(false);
