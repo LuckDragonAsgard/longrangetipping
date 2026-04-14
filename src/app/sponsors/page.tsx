@@ -70,7 +70,7 @@ export default function SponsorsPage() {
             </span>
           </h1>
           <p className="text-xl sm:text-2xl text-[#a0a0cc] max-w-3xl mx-auto mb-10">
-            Sponsor a tipping comp on Long Range Tipping. Your brand, your colours, your prizes â seen
+            Sponsor a tipping comp on Long Range Tipping. Your brand, your colours, your prizes  -  seen
             by engaged AFL fans every week for the entire season.
           </p>
           <a
@@ -93,9 +93,9 @@ export default function SponsorsPage() {
         </p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {[
-            { icon: '\u{1F3AF}', title: 'Targeted Reach', desc: 'Your brand reaches passionate AFL fans â not random web traffic. Every member is engaged and returning weekly.' },
+            { icon: '\u{1F3AF}', title: 'Targeted Reach', desc: 'Your brand reaches passionate AFL fans  -  not random web traffic. Every member is engaged and returning weekly.' },
             { icon: '\u{1F4C8}', title: 'Season-Long Exposure', desc: '6 months of continuous brand visibility. Your logo and colours are seen every time they check their tips.' },
-            { icon: '\u{1F3C6}', title: 'Prize Association', desc: 'Attach your brand to prizes. Winners remember who funded the prize pool â powerful brand recall.' },
+            { icon: '\u{1F3C6}', title: 'Prize Association', desc: 'Attach your brand to prizes. Winners remember who funded the prize pool  -  powerful brand recall.' },
             { icon: '\u{1F91D}', title: 'Community Goodwill', desc: 'Supporting free, ad-free footy tipping earns genuine community appreciation. No pop-ups, no annoyance.' },
           ].map((item, i) => (
             <div key={i} className="bg-[#111128] border border-[#2a2a5a] rounded-2xl p-6 card-hover">
@@ -164,7 +164,7 @@ export default function SponsorsPage() {
                 ))}
               </ul>
               <a
-                href={`mailto:pgallivan@outlook.com?subject=${tier.name} Sponsorship â Long Range Tipping`}
+                href={`mailto:pgallivan@outlook.com?subject=${tier.name} Sponsorship  -  Long Range Tipping`}
                 className="block w-full py-3 rounded-lg font-semibold text-center transition-all"
                 style={{
                   backgroundColor: tier.color + '20',
