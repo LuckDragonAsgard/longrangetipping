@@ -118,3 +118,8 @@ See `supabase-schema.sql` for the full database schema including users/profiles,
 ---
 
 Built by Paddy for the footy-loving community.
+
+## Sponsorship
+
+Interested in sponsoring a tipping comp? Visit [longrangetipping.com/sponsors](https://longrangetipping.com/sponsors) for pricing tiers and details.
+
