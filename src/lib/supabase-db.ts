@@ -123,7 +123,7 @@ export async function fetchCompByCode(inviteCode: string) {
     .select('*')
     .eq('invite_code', inviteCode.toUpperCase())
     .maybeSingle();
-  if (error) return null;
+  if (error) { console.error('fetchCompByCode error:', error); return null; }
   return data;
 }
 
@@ -143,7 +143,7 @@ export async function createComp(comp: {
       invite_code: comp.invite_code.toUpperCase(),
       is_public: comp.is_public,
       creator_id: comp.creator_id,
-      season_year: 2026,
+      season_year: new Date().getFullYear(),
       tip_deadline: comp.tip_deadline || null,
     })
     .select()
