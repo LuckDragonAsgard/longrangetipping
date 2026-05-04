@@ -1,5 +1,7 @@
 'use client';
 
+export const runtime = "edge";
+
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { AFL_2026_FIXTURE, type FixtureGame } from '@/lib/fixture-data';
