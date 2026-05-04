@@ -1,3 +1,5 @@
+export const runtime = "edge";
+
 import { NextResponse } from 'next/server';
 
 const SQUIGGLE_BASE = 'https://api.squiggle.com.au';
