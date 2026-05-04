@@ -8,8 +8,9 @@ export async function POST(request: Request) {
     if (!comp_id || !tips || !Array.isArray(tips)) {
       return NextResponse.json({ error: "Comp ID and tips array required" }, { status: 400 });
     }
-    return NextResponse.json({ message: \`\${tips.length} tips saved successfully\`, saved_count: tips.length });
-  } catch {
+    return NextResponse.json({ message: tips.length + " tips saved successfully", saved_count: tips.length });
+  } catch (e) {
     return NextResponse.json({ error: "Failed to save tips" }, { status: 500 });
   }
 }
+
