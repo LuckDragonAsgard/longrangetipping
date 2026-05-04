@@ -23,7 +23,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ user: { id: data.user?.id, email: data.user?.email, display_name }, message: "Account created - check your email to confirm" });
     }
     return NextResponse.json({ user: { id: "demo-" + Date.now(), email, display_name }, message: "Demo mode - account created" });
-  } catch {
+  } catch (e) {
     return NextResponse.json({ error: "Signup failed" }, { status: 500 });
   }
 }
+
