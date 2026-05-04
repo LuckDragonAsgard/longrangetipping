@@ -13,7 +13,8 @@ export async function POST(request: Request) {
     if (!name) return NextResponse.json({ error: "Comp name is required" }, { status: 400 });
     const invite_code = name.replace(/[^a-zA-Z]/g, "").substring(0, 6).toUpperCase() + Math.floor(Math.random() * 100);
     return NextResponse.json({ comp: { id: "demo-" + Date.now(), name, description, is_public, invite_code, tip_deadline, season_year: 2026, created_at: new Date().toISOString() } });
-  } catch {
+  } catch (e) {
     return NextResponse.json({ error: "Failed to create comp" }, { status: 500 });
   }
 }
+
